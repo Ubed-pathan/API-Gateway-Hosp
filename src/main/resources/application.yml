@@ -1,0 +1,35 @@
+server:
+  port: ${PORT}
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        - id: appointment-service
+          uri: lb://APPOINTMENT-SERVICE
+          predicates:
+            - Path=/appointment/**
+        - id: user-service
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/user/**
+        - id: doctor-service
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/docter/**
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL}
+  instance:
+    instance-id: ${spring.application.name}:${server.port}
+    prefer-ip-address: true
