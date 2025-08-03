@@ -63,6 +63,9 @@ public class SecurityConfig {
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/user/login", "/user/register").permitAll()
+                        .pathMatchers("/user/**").hasRole("USER")
+                        .pathMatchers("/doctor/**").hasRole("DOCTOR")
+                        .pathMatchers("/admin/**").hasRole("ADMIN")
                         .anyExchange().authenticated()
                 )
                 .securityContextRepository(customSecurityContextRepository())
