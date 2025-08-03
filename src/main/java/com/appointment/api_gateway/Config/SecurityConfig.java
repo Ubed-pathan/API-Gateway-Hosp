@@ -57,7 +57,8 @@ public class SecurityConfig {
             public Mono<SecurityContext> load(ServerWebExchange exchange) {
                 String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
 
-                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+
+                if (authHeader == null || !authHeader.startsWith("jwt ")) {
                     return Mono.empty(); // No token, unauthorized
                 }
 
