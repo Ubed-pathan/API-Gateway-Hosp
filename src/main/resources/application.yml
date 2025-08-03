@@ -20,9 +20,9 @@ spring:
           predicates:
             - Path=/user/**
         - id: doctor-service
-          uri: lb://USER-SERVICE
+          uri: lb://DOCTOR-SERVICE
           predicates:
-            - Path=/docter/**
+            - Path=/doctor/**
 
 eureka:
   client:

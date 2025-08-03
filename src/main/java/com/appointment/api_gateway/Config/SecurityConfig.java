@@ -1,5 +1,6 @@
 package com.appointment.api_gateway.Config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,7 +12,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.security.web.server.SecurityWebFilterChain;
@@ -19,19 +19,43 @@ import org.springframework.security.web.server.context.ServerSecurityContextRepo
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import jakarta.annotation.PostConstruct;
+import java.io.IOException;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+
 import java.util.Base64;
 
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
 
-    @Value("${JWT_PUBLIC_KEY_BASE64}")
-    private String jwtPublicKeyBase64;
+    private final Map<String, PublicKey> publicKeys = new HashMap<>();
+
+    @Value("${USER_SERVICE_PUBLIC_KEY}")
+    private String userServicePublicKey;
+
+//    @Value("${doctor.service.public.key}")
+//    private String doctorServicePublicKey;
+
+//    @Value("${admin.service.public.key}")
+//    private String adminServicePublicKey;
+
+    @PostConstruct
+    public void loadKeys() throws Exception {
+        publicKeys.put("user-service-key", loadPublicKey(userServicePublicKey));
+//        publicKeys.put("doctor-service-key", loadPublicKey(doctorServicePublicKey));
+//        publicKeys.put("admin-service-key", loadPublicKey(adminServicePublicKey));
+    }
+
+
+    private PublicKey loadPublicKey(String base64Key) throws Exception {
+        byte[] decoded = Base64.getDecoder().decode(base64Key);
+        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(decoded);
+        return KeyFactory.getInstance("RSA").generatePublic(keySpec);
+    }
 
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
@@ -41,7 +65,7 @@ public class SecurityConfig {
                         .pathMatchers("/user/login", "/user/register").permitAll()
                         .anyExchange().authenticated()
                 )
-                .securityContextRepository(customSecurityContextRepository()) // Custom security context for JWT handling
+                .securityContextRepository(customSecurityContextRepository())
                 .build();
     }
 
@@ -50,65 +74,69 @@ public class SecurityConfig {
         return new ServerSecurityContextRepository() {
             @Override
             public Mono<Void> save(ServerWebExchange exchange, SecurityContext context) {
-                return Mono.empty(); // Not needed for stateless JWT
+                return Mono.empty(); // Stateless
             }
 
             @Override
             public Mono<SecurityContext> load(ServerWebExchange exchange) {
-                String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
+                String jwt = extractJwtFromCookies(exchange);
 
-
-                if (authHeader == null || !authHeader.startsWith("jwt ")) {
-                    return Mono.empty(); // No token, unauthorized
+                if (jwt == null) {
+                    return Mono.empty();
                 }
 
-                String token = authHeader.substring(7); // Extract the token
-
                 try {
-                    Claims claims = parseJwt(token); // Parse the JWT with the public key
-
+                    Claims claims = parseJwt(jwt);
                     String username = claims.getSubject();
-                    List<String> roles = claims.get("roles", List.class);
+                    String role = claims.get("role", String.class); // assuming single role
 
-                    // Convert roles to authorities
                     List<SimpleGrantedAuthority> authorities = new ArrayList<>();
-                    if (roles != null) {
-                        for (String role : roles) {
-                            authorities.add(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()));
-                        }
+                    if (role != null) {
+                        authorities.add(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()));
                     }
 
-                    // Create the Authentication object
                     AbstractAuthenticationToken auth = new UsernamePasswordAuthenticationToken(username, null, authorities);
 
-                    // Add user-related information as headers for downstream services
                     ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                            .header("X-User-Id", claims.get("userId").toString())
-                            .header("X-User-Email", claims.get("email").toString())
+                            .header("X-User-Id", claims.getSubject())
+                            .header("X-User-Email", (String) claims.get("email"))
                             .build();
 
-                    exchange.mutate().request(mutatedRequest).build(); // Apply the mutated request
+                    exchange.mutate().request(mutatedRequest).build();
 
-                    // Return SecurityContext with Authentication
                     return Mono.just(new SecurityContextImpl(auth));
 
                 } catch (Exception e) {
-                    return Mono.empty(); // Invalid or expired token
+                    return Mono.empty();
                 }
             }
-
         };
     }
 
+    private String extractJwtFromCookies(ServerWebExchange exchange) {
+        return Optional.ofNullable(exchange.getRequest().getCookies().getFirst("jwt"))
+                .map(cookie -> cookie.getValue())
+                .orElse(null);
+    }
+
     private Claims parseJwt(String token) throws Exception {
-        byte[] decodedKey = Base64.getDecoder().decode(jwtPublicKeyBase64);
-        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(decodedKey);
-        PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(keySpec);
+        String kid = extractKidFromJwtHeader(token);
+        PublicKey key = publicKeys.get(kid);
+        if (key == null) throw new IllegalArgumentException("Unknown key ID: " + kid);
 
         return Jwts.parserBuilder()
-                .setSigningKey(publicKey)
+                .setSigningKey(key)
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
+    }
+
+    private String extractKidFromJwtHeader(String token) throws IOException {
+        String[] parts = token.split("\\.");
+        if (parts.length != 3) throw new IllegalArgumentException("Invalid JWT");
+
+        String headerJson = new String(Base64.getUrlDecoder().decode(parts[0]));
+        ObjectMapper mapper = new ObjectMapper();
+        return mapper.readTree(headerJson).get("kid").asText();
     }
 }
