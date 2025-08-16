@@ -37,8 +37,8 @@ public class SecurityConfig {
     @Value("${USER_SERVICE_PUBLIC_KEY}")
     private String userServicePublicKey;
 
-//    @Value("${doctor.service.public.key}")
-//    private String doctorServicePublicKey;
+    @Value("${DOCTOR_SERVICE_PUBLIC_KEY}")
+    private String doctorServicePublicKey;
 
 //    @Value("${admin.service.public.key}")
 //    private String adminServicePublicKey;
@@ -46,7 +46,7 @@ public class SecurityConfig {
     @PostConstruct
     public void loadKeys() throws Exception {
         publicKeys.put("user-service-key", loadPublicKey(userServicePublicKey));
-//        publicKeys.put("doctor-service-key", loadPublicKey(doctorServicePublicKey));
+        publicKeys.put("doctor-service-key", loadPublicKey(doctorServicePublicKey));
 //        publicKeys.put("admin-service-key", loadPublicKey(adminServicePublicKey));
     }
 
