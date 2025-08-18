@@ -62,7 +62,7 @@ public class SecurityConfig {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/user/login", "/user/register").permitAll()
+                        .pathMatchers("/user/send-otp", "/user/verify-otp","/user/login", "/user/register").permitAll()
                         .pathMatchers("/user/**").hasRole("USER")
                         .pathMatchers("/doctor/**").hasRole("DOCTOR")
                         .pathMatchers("/admin/**").hasRole("ADMIN")
