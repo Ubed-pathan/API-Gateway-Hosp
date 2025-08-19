@@ -16,6 +16,9 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.ServerSecurityContextRepository;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -40,6 +43,9 @@ public class SecurityConfig {
     @Value("${DOCTOR_SERVICE_PUBLIC_KEY}")
     private String doctorServicePublicKey;
 
+    @Value("${FRONTEND_URL}")
+    private String frontendUrl;
+
 //    @Value("${admin.service.public.key}")
 //    private String adminServicePublicKey;
 
@@ -61,6 +67,15 @@ public class SecurityConfig {
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .cors(corsSpec -> corsSpec.configurationSource(exchange -> {
+                    CorsConfiguration config = new CorsConfiguration();
+                    config.setAllowedOrigins(List.of(frontendUrl));
+                    config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+                    config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+                    config.setExposedHeaders(List.of("Authorization"));
+                    config.setAllowCredentials(true);
+                    return config;
+                }))
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/user/send-otp", "/user/verify-otp","/user/login", "/user/register").permitAll()
                         .pathMatchers("/user/**").hasRole("USER")
@@ -71,6 +86,8 @@ public class SecurityConfig {
                 .securityContextRepository(customSecurityContextRepository())
                 .build();
     }
+
+
 
     @Bean
     public ServerSecurityContextRepository customSecurityContextRepository() {
