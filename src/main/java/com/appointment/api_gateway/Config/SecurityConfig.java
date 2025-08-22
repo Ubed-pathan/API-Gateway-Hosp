@@ -17,8 +17,6 @@ import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.ServerSecurityContextRepository;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -84,6 +82,19 @@ public class SecurityConfig {
                         .anyExchange().authenticated()
                 )
                 .securityContextRepository(customSecurityContextRepository())
+                .exceptionHandling(exceptionHandlingSpec ->
+                        exceptionHandlingSpec
+                                .authenticationEntryPoint((exchange, ex) -> {
+                                    // Remove WWW-Authenticate header and return 401 with JSON
+                                    exchange.getResponse().getHeaders().remove("WWW-Authenticate");
+                                    exchange.getResponse().setStatusCode(org.springframework.http.HttpStatus.UNAUTHORIZED);
+                                    // Optionally, write a JSON error body:
+                                    // byte[] bytes = "{\"error\":\"Unauthorized\"}".getBytes(StandardCharsets.UTF_8);
+                                    // exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                                    // return exchange.getResponse().writeWith(Mono.just(exchange.getResponse().bufferFactory().wrap(bytes)));
+                                    return exchange.getResponse().setComplete();
+                                })
+                )
                 .build();
     }
 
@@ -120,6 +131,7 @@ public class SecurityConfig {
                     ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
                             .header("X-User-Id", claims.getSubject())
                             .header("X-User-Email", (String) claims.get("email"))
+                            .header("X-User-Name", (String) claims.get("userName"))
                             .build();
 
                     exchange.mutate().request(mutatedRequest).build();
