@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -27,8 +28,6 @@ import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 
-import java.util.Base64;
-
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
@@ -44,16 +43,11 @@ public class SecurityConfig {
     @Value("${FRONTEND_URL}")
     private String frontendUrl;
 
-//    @Value("${admin.service.public.key}")
-//    private String adminServicePublicKey;
-
     @PostConstruct
     public void loadKeys() throws Exception {
         publicKeys.put("user-service-key", loadPublicKey(userServicePublicKey));
         publicKeys.put("doctor-service-key", loadPublicKey(doctorServicePublicKey));
-//        publicKeys.put("admin-service-key", loadPublicKey(adminServicePublicKey));
     }
-
 
     private PublicKey loadPublicKey(String base64Key) throws Exception {
         byte[] decoded = Base64.getDecoder().decode(base64Key);
@@ -75,43 +69,38 @@ public class SecurityConfig {
                     return config;
                 }))
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/user/send-otp", "/user/verify-otp","/user/login", "/user/register").permitAll()
+                        .pathMatchers("/user/send-otp", "/user/verify-otp", "/user/login", "/user/register").permitAll()
                         .pathMatchers("/user/**").hasRole("USER")
                         .pathMatchers("/doctor/**").hasRole("DOCTOR")
                         .pathMatchers("/admin/**").hasRole("ADMIN")
                         .anyExchange().authenticated()
                 )
-                .securityContextRepository(customSecurityContextRepository())
+                .securityContextRepository(customSecurityContextRepository()) // ✅ now resolved
                 .exceptionHandling(exceptionHandlingSpec ->
-                        exceptionHandlingSpec
-                                .authenticationEntryPoint((exchange, ex) -> {
-                                    // Remove WWW-Authenticate header and return 401 with JSON
-                                    exchange.getResponse().getHeaders().remove("WWW-Authenticate");
-                                    exchange.getResponse().setStatusCode(org.springframework.http.HttpStatus.UNAUTHORIZED);
-                                    // Optionally, write a JSON error body:
-                                    // byte[] bytes = "{\"error\":\"Unauthorized\"}".getBytes(StandardCharsets.UTF_8);
-                                    // exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
-                                    // return exchange.getResponse().writeWith(Mono.just(exchange.getResponse().bufferFactory().wrap(bytes)));
-                                    return exchange.getResponse().setComplete();
-                                })
+                        exceptionHandlingSpec.authenticationEntryPoint((exchange, ex) -> {
+                            exchange.getResponse().getHeaders().remove("WWW-Authenticate");
+                            exchange.getResponse().setStatusCode(org.springframework.http.HttpStatus.UNAUTHORIZED);
+                            return exchange.getResponse().setComplete();
+                        })
                 )
                 .build();
     }
 
-
-
+    /**
+     * Custom repository that extracts JWT from cookies,
+     * validates signature, and sets authentication in context.
+     */
     @Bean
     public ServerSecurityContextRepository customSecurityContextRepository() {
         return new ServerSecurityContextRepository() {
             @Override
             public Mono<Void> save(ServerWebExchange exchange, SecurityContext context) {
-                return Mono.empty(); // Stateless
+                return Mono.empty(); // stateless
             }
 
             @Override
             public Mono<SecurityContext> load(ServerWebExchange exchange) {
                 String jwt = extractJwtFromCookies(exchange);
-
                 if (jwt == null) {
                     return Mono.empty();
                 }
@@ -119,22 +108,16 @@ public class SecurityConfig {
                 try {
                     Claims claims = parseJwt(jwt);
                     String username = claims.getSubject();
-                    String role = claims.get("role", String.class); // assuming single role
+                    String role = claims.get("role", String.class);
 
                     List<SimpleGrantedAuthority> authorities = new ArrayList<>();
                     if (role != null) {
                         authorities.add(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()));
                     }
 
-                    AbstractAuthenticationToken auth = new UsernamePasswordAuthenticationToken(username, null, authorities);
-
-                    ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                            .header("X-User-Id", claims.getSubject())
-                            .header("X-User-Email", (String) claims.get("email"))
-                            .header("X-User-Name", (String) claims.get("userName"))
-                            .build();
-
-                    exchange.mutate().request(mutatedRequest).build();
+                    AbstractAuthenticationToken auth =
+                            new UsernamePasswordAuthenticationToken(username, null, authorities);
+                    auth.setDetails(claims); // ✅ attach claims so GlobalFilter can read them
 
                     return Mono.just(new SecurityContextImpl(auth));
 
@@ -143,6 +126,25 @@ public class SecurityConfig {
                 }
             }
         };
+    }
+
+    /**
+     * Filter that propagates user info headers to downstream services.
+     */
+    @Bean
+    public GlobalFilter addUserHeadersFilter() {
+        return (exchange, chain) -> exchange.getPrincipal()
+                .cast(UsernamePasswordAuthenticationToken.class)
+                .flatMap(auth -> {
+                    Claims claims = (Claims) auth.getDetails();
+                    ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
+                            .header("X-User-Id", claims.getSubject())
+                            .header("X-User-Email", (String) claims.get("email"))
+                            .header("X-User-Name", (String) claims.get("userName"))
+                            .build();
+                    return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                })
+                .switchIfEmpty(chain.filter(exchange));
     }
 
     private String extractJwtFromCookies(ServerWebExchange exchange) {
