@@ -70,9 +70,10 @@ public class SecurityConfig {
                 }))
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/user/send-otp", "/user/verify-otp", "/user/login", "/user/register").permitAll()
+                        .pathMatchers("/user/logout").hasAnyRole("USER", "ADMIN", "DOCTOR")
                         .pathMatchers("/user/**", "/doctor/getAllDoctors").hasRole("USER")
+                        .pathMatchers("/admin/**", "/doctor/register").hasRole("ADMIN")
                         .pathMatchers("/doctor/**").hasRole("DOCTOR")
-                        .pathMatchers("/admin/**").hasRole("ADMIN")
                         .anyExchange().authenticated()
                 )
                 .securityContextRepository(customSecurityContextRepository()) // ✅ now resolved
@@ -108,11 +109,13 @@ public class SecurityConfig {
                 try {
                     Claims claims = parseJwt(jwt);
                     String username = claims.getSubject();
-                    String role = claims.get("role", String.class);
+                    List<String> roles = claims.get("roles", List.class);
 
                     List<SimpleGrantedAuthority> authorities = new ArrayList<>();
-                    if (role != null) {
-                        authorities.add(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()));
+                    if (roles != null) {
+                        for (String r : roles) {
+                            authorities.add(new SimpleGrantedAuthority("ROLE_" + r.toUpperCase()));
+                        }
                     }
 
                     AbstractAuthenticationToken auth =
