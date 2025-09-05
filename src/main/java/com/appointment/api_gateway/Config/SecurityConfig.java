@@ -74,6 +74,7 @@ public class SecurityConfig {
                         .pathMatchers("/user/**", "/doctor/getAllDoctors").hasRole("USER")
                         .pathMatchers("/admin/**", "/doctor/register").hasRole("ADMIN")
                         .pathMatchers("/doctor/**").hasRole("DOCTOR")
+                        .pathMatchers("/appointment/**").hasAnyRole("USER", "DOCTOR","ADMIN")
                         .anyExchange().authenticated()
                 )
                 .securityContextRepository(customSecurityContextRepository()) // ✅ now resolved
