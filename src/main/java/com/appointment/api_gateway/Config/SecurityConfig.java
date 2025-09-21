@@ -69,7 +69,7 @@ public class SecurityConfig {
                     return config;
                 }))
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/user/send-otp", "/user/verify-otp", "/user/login", "/user/register", "/user/forgot-password", "user/send-forget-otp").permitAll()
+                        .pathMatchers("/user/send-otp", "/user/verify-otp", "/user/login", "/user/register", "/user/forgot-password", "/user/send-forget-otp", "/user/auth/google", "/user/auth/onboarding").permitAll()
                         .pathMatchers("/user/logout").hasAnyRole("USER", "ADMIN", "DOCTOR")
                         .pathMatchers("/user/**", "/doctor/getAllDoctors").hasRole("USER")
                         .pathMatchers("/admin/**", "/doctor/register").hasRole("ADMIN")
